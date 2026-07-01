@@ -6,7 +6,7 @@ A production-grade AI chatbot for a dental clinic's Telegram support, built end-
 
 ## Architecture
 
-![System overview]([docs/system-overview.png](https://github.com/aldar000405-a11y/AI-FAQ-Chatbot-Dental-Clinic-n8n-/tree/main/main-flow-diagram.png))
+![System overview]([[docs/system-overview.png](https://github.com/aldar000405-a11y/AI-FAQ-Chatbot-Dental-Clinic-n8n-/tree/main/main-flow-diagram.png)](https://github.com/aldar000405-a11y/AI-FAQ-Chatbot-Dental-Clinic-n8n-/tree/main))
 
 The system is three connected workflows sharing one PostgreSQL database:
 
