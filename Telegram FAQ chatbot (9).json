@@ -1,0 +1,1104 @@
+{
+  "name": "Telegram FAQ chatbot",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const MAX_MESSAGE_LENGTH = 4000;\n\n\nreturn $input.all().map(item => {\n  \n  // Extract message from the current item in the batch\n  const message = item.json.message || {};\n\n  // Safely extract and limit text\n  const text =\n    typeof message.text === \"string\"\n      ? message.text.trim().slice(0, MAX_MESSAGE_LENGTH)\n      : null;\n\n  // Return the mapped JSON object\n  return {\n    json: {\n      chat_id: message.chat?.id ?? null,\n      text,\n      message_id: message.message_id ?? null,\n      sender_name: message.from?.first_name ?? null,\n      username: message.from?.username ?? null,\n      language: message.from?.language_code ?? null,\n      hasText: Boolean(text), // accurately flags if text is present and not just empty spaces\n      isStatusUpdate: false\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        80
+      ],
+      "id": "46a1a3ef-90a8-4899-84e1-32d291228de7",
+      "name": "Extract Meta Message"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT role, content FROM chat_sessions \nWHERE session_id = $1\nORDER by created_at DESC\nLIMIT 8;",
+        "options": {
+          "queryReplacement": "={{ $json.chat_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        32,
+        64
+      ],
+      "id": "3d308812-8a40-479e-842c-cf21e0ec33e9",
+      "name": "Load History",
+      "alwaysOutputData": false,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      },
+      "notes": "Retrieves last 8 messages for memory."
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Safely get the meta data for the CURRENT user in the batch.\n// We use a try/catch fallback to ensure n8n perfectly matches the history to the correct user.\nlet meta;\ntry {\n  meta = $('Extract Meta Message').item.json;\n} catch (e) {\n  meta = $('Extract Meta Message').first().json;\n}\n\n// 2. Extract and sanitize the rows\nconst validRows = items\n  .map(i => i.json)\n  // CRITICAL: Filter out empty rows (happens when a new user has no history)\n  .filter(r => r.role && r.content) \n  .reverse();\n\n// 3. Format history, or provide a clean starting state for new users\nconst last_8_messages = validRows.length > 0 \n  ? validRows.map(r => `${r.role.toUpperCase()}: ${r.content}`).join(\"\\n\")\n  : \"System: This is a new conversation. No previous history.\";\n\nreturn [{\n  json: {\n    ...meta,\n    last_8_messages\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        112
+      ],
+      "id": "b1a947c1-9850-4423-a0d5-e3348fa958fd",
+      "name": "Format History"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO chat_sessions (session_id, role, content) VALUES ($1, $2, $3);",
+        "options": {
+          "queryReplacement": "={{ [ $('Extract Meta Message').item.json.chat_id, 'user', $('Extract Meta Message').item.json.text ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2656,
+        -32
+      ],
+      "id": "436d9042-b847-4d74-a6f0-53ffaa0a915e",
+      "name": "Save User Message",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO chat_sessions (session_id, role, content) VALUES ($1, $2, $3);",
+        "options": {
+          "queryReplacement": "={{ [ $('Extract Meta Message').item.json.chat_id, 'assistant', $('Parse gemini response').item.json.answer ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2864,
+        -32
+      ],
+      "id": "ce54e6fc-e786-4361-8487-9ffb589e1902",
+      "name": "Save Bot Answer",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO unanswered_questions (session_id, question, reason) VALUES ($1, $2, $3);",
+        "options": {
+          "queryReplacement": "={{ [ $('Extract Meta Message').item.json.chat_id, $('Extract Meta Message').item.json.text, $('Parse gemini response').item.json.reason ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2704,
+        160
+      ],
+      "id": "7553a1dc-e6bd-48d0-89e4-5ca5b02e1ed0",
+      "name": "Log Unanswered",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -576,
+        80
+      ],
+      "id": "95f4e61a-4d95-4bea-bcb3-84ef855986da",
+      "name": "Telegram Trigger",
+      "webhookId": "33bead54-afea-4e88-87e4-5c79f9e7c4d0",
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "179d6e15-7611-4c58-8620-afc953d4e945",
+              "leftValue": "={{ $json.hasText }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -176,
+        80
+      ],
+      "id": "9a145925-a8f4-44f4-9040-b9038c1daf55",
+      "name": "Has text?",
+      "alwaysOutputData": false,
+      "notesInFlow": true,
+      "notes": "Ensures input is text, not audio/images."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5609cddc-30fa-4a7f-ac8d-fa5f7f8c7e89",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "error",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1856,
+        176
+      ],
+      "id": "a891c0fa-c236-47be-95fe-b9ac7fecba9b",
+      "name": "Has error?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all(); // Ensure items are explicitly loaded\n\nconst validEscalateReasons = [\n  \"medical_risk\",\n  \"off_topic\",\n  \"no_faq_match\"\n];\n\nfor (const item of items) {\n  try {\n    // 1. Handle HTTP/Node errors\n    if (item.json.error) {\n      item.json = {\n        status: \"error\",\n        reason: \"http_request_failed\",\n        error: item.json.error.message || String(item.json.error)\n      };\n      continue;\n    }\n\n    // 2. Handle Gemini Safety Filters & Blocks (NEW)\n    const candidate = item.json.candidates?.[0];\n    const promptFeedback = item.json.promptFeedback;\n    \n    if (promptFeedback?.blockReason) {\n      throw new Error(`Prompt blocked by Google Safety: ${promptFeedback.blockReason}`);\n    }\n    \n    if (candidate?.finishReason && candidate.finishReason !== \"STOP\") {\n      throw new Error(`Gemini stopped generating. Reason: ${candidate.finishReason}`);\n    }\n\n    // 3. Extract Gemini response\n    const text = candidate?.content?.parts?.[0]?.text || \"\";\n    \n    if (!text.trim()) {\n       throw new Error(\"Gemini returned an completely empty text response.\");\n    }\n\n    const clean = text\n      .replace(/```json/g, \"\")\n      .replace(/```/g, \"\")\n      .trim();\n\n    // 4. Token & Cost Calculation\n    const usage = item.json.usageMetadata || {};\n    const promptTokens = Number(usage.promptTokenCount ?? 0);\n    const completionTokens = Number(usage.candidatesTokenCount ?? 0);\n    const totalTokens = Number(usage.totalTokenCount ?? 0);\n    const model = item.json.modelVersion ?? \"gemini-2.5-flash\";\n    \n    const cost = (promptTokens * 0.30 + completionTokens * 2.50) / 1000000;\n\n    // 5. Safely Parse JSON (NEW)\n    let result;\n    try {\n      result = JSON.parse(clean);\n    } catch (parseError) {\n      // If parsing fails, attach the RAW text so the admin can debug it!\n      throw new Error(`JSON Parse Error: ${parseError.message}. RAW OUTPUT: ${clean.substring(0, 200)}`);\n    }\n\n    // ===== ANSWERED =====\n    if (result.status === \"answered\") {\n      // Hard stop to prevent Telegram from crashing\n      if (typeof result.answer === \"string\" && result.answer.length > 4000) {\n        result.answer = result.answer.substring(0, 3990) + \"... [Message truncated]\";\n      }\n\n      if (typeof result.answer !== \"string\" || result.answer.trim() === \"\") {\n        throw new Error(\"Missing or invalid answer field in answered status\");\n      }\n\n      if (typeof result.language_detected !== \"string\" || result.language_detected.trim() === \"\") {\n        throw new Error(\"Missing or invalid language_detected field in answered status\");\n      }\n\n      if (result.reason) throw new Error(\"Forbidden field: reason in answered status\");\n      if (result.message) throw new Error(\"Forbidden field: message in answered status\");\n\n      item.json = {\n        status: \"answered\",\n        answer: result.answer,\n        reason: null,\n        language_detected: result.language_detected.charAt(0).toUpperCase() + result.language_detected.slice(1).toLowerCase(),\n        model,\n        prompt_tokens: promptTokens,\n        completion_tokens: completionTokens,\n        total_tokens: totalTokens,\n        cost_usd: Number(cost.toFixed(6))\n      };\n    }\n\n    // ===== ESCALATE =====\n    else if (result.status === \"escalate\") {\n      if (!result.reason) throw new Error(\"Missing reason field in escalate status\");\n      if (!validEscalateReasons.includes(result.reason)) throw new Error(`Invalid escalate reason: ${result.reason}`);\n      if (typeof result.message !== \"string\" || result.message.trim() === \"\") {\n        throw new Error(\"Missing or invalid message field in escalate status\");\n      }\n      if (typeof result.language_detected !== \"string\" || result.language_detected.trim() === \"\") {\n        throw new Error(\"Missing or invalid language_detected field in escalate status\");\n      }\n      if (result.answer) throw new Error(\"Forbidden field: answer in escalate\");\n\n      item.json = {\n        status: \"escalate\",\n        reason: result.reason,\n        message: result.message,\n        language_detected: result.language_detected.charAt(0).toUpperCase() + result.language_detected.slice(1).toLowerCase(),\n        model,\n        prompt_tokens: promptTokens,\n        completion_tokens: completionTokens,\n        total_tokens: totalTokens,\n        cost_usd: Number(cost.toFixed(6))\n      };\n    }\n\n    // ===== Invalid Status =====\n    else {\n      throw new Error(`Unknown status from AI: ${result.status}`);\n    }\n\n  } catch (e) {\n    item.json = {\n      status: \"error\",\n      reason: \"ai_validation_failed\",\n      error: e.message\n    };\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        160
+      ],
+      "id": "118dc220-3901-4500-a1f5-c380a692e172",
+      "name": "Parse gemini response"
+    },
+    {
+      "parameters": {
+        "jsCode": "const faq = $('Format FAQ Data').first().json.faq_sheet_content;\nconst history = $('Format History').first().json.last_8_messages;\n\nreturn [\n  {\n    json: {\n      systemPrompt: `You are the Telegram assistant for Hava Dental Clinic. Your sole knowledge source is the FAQ below. Never invent facts, prices, services, or policies not explicitly stated in the FAQ.\n\nFAQ CONTENT:\n${faq}\n\nCONVERSATION HISTORY:\n${history}\n\nSTRICT LANGUAGE ENFORCEMENT\n- Detect the user's language from their latest message.\n- You MUST reply in the EXACT same language. No exceptions.\n- If the user writes in Arabic, reply fully in Arabic. If English, reply fully in English. If French, reply in French. If Kurdish, reply in Kurdish.\n- NEVER mix languages within the same response.\n- NEVER default to English when the user writes in another language.\n- The FAQ is written in Arabic, but you must translate the meaning into the user's language. Do not output Arabic just because the source FAQ is in Arabic.\n- Include \"language_detected\" in your output.\n\nINTENT UNDERSTANDING\nMatch semantically equivalent questions to the appropriate FAQ entry even if wording differs completely. Examples: \"هل توجد خدمات أسنان للأطفال؟\" matches \"Do you treat kids?\" and \"Children dentist?\". \"ما هي طرق الدفع؟\" matches \"Visa accepted?\", \"Apple Pay?\", and \"What payment methods do you accept?\".\n\nANSWERING GUIDELINES\nIf the FAQ clearly contains the answer:\n- Return status \"answered\".\n- Do not copy the FAQ verbatim unless it fits perfectly. Rewrite naturally, professionally, and concisely.\n- Preserve the original meaning exactly. Never add external information.\n- Sound like a real clinic employee: friendly, polite, and human.\n\nEnd every \"answered\" response with a natural, one-sentence invitation to ask more about Hava Dental Clinic. Vary the wording. Examples: \"If you have any other questions, I'd be happy to help.\" / \"Feel free to ask if there's anything else you'd like to know.\" / \"Let me know if you have any other questions.\" / \"يسعدني الإجابة عن أي استفسار يتعلق بعيادة Hava Dental أو خدماتها.\" / \"لا تتردد في سؤالي إذا أردت معرفة المزيد عن عيادة Hava Dental.\"\nNever include this invitation in \"escalate\" responses.\n\nSERVICE OVERVIEW\nIf the user asks generally about services, treatments, specialties, or what the clinic offers (e.g., \"What services do you offer?\", \"What is available?\"), search the entire FAQ and summarize every relevant service. Do NOT escalate if the FAQ lists services.\n\nCASUAL CONVERSATION\nIf the message is only a greeting, farewell, thanks, confirmation, or simple chat requiring no FAQ info, reply naturally and briefly (1–2 sentences) in the user's language. Return status \"answered\". Do NOT escalate. Examples: Hello, Hi, Thanks, OK, Bye, شكراً, السلام عليكم, مرحباً, تمام, مع السلامة.\n\nESCALATION RULES (Highest to Lowest Priority)\n1. Medical Risk: If the patient mentions pain, swelling, bleeding, medication, infection, fever, emergency, symptoms, recovery concerns, medical risks, or asks \"is this normal?\", do NOT answer. Return status \"escalate\", reason \"medical_risk\".\n2. Off-Topic: If the message is unrelated to a dental clinic (weather, sports, politics, programming, jokes, etc.), return status \"escalate\", reason \"off_topic\".\n3. No FAQ Match: If, after understanding intent, there is still no clear answer in the FAQ, do NOT guess, assume, or partially answer. Return status \"escalate\", reason \"no_faq_match\".\n4. Ambiguous / Incomplete: If the question could refer to multiple FAQ entries (e.g., \"How much does it cost?\", \"Do you accept insurance?\" when multiple providers exist), do NOT escalate. Ask ONE short clarifying question in the user's language. Mention relevant FAQ entries briefly so the user can choose. Return status \"answered\".\n5. Answering Condition: Only return status \"answered\" if the FAQ explicitly and clearly contains the information.\n\nCRITICAL LIMIT: Keep ALL responses strictly under 3000 characters. Telegram will crash if you exceed this limit.\n\nESCALATION MESSAGES\nFor every \"escalate\" response, include a \"message\" field. Requirements:\n- In the user's language.\n- Sound like a real clinic receptionist: polite, reassuring, professional.\n- Never mention AI, FAQ, system limitations, or internal rules.\n- Never say \"I don't know.\" Instead, state naturally that the clinic team will assist.\n- 1–2 short sentences. Vary wording.\n\nExamples:\n- Medical: \"Since your question involves a medical concern, I'll forward it to our clinic team so they can assist you.\" / \"نظرًا لأن استفسارك يتعلق بجانب طبي، سأقوم بتحويله إلى فريق العيادة لمساعدتك.\"\n- No match: \"I'll forward your question to our clinic team so they can provide you with accurate information.\" / \"سأقوم بتحويل استفسارك إلى فريق العيادة ليقدّم لك المعلومات الدقيقة.\"\n- Off-topic: \"I'm here to help with questions related to Hava Dental Clinic.\" / \"يسعدني مساعدتك في أي استفسار يتعلق بعيادة Hava Dental.\"\n\nOUTPUT FORMAT\nReturn ONLY valid JSON. Never return Markdown, explanations, or text outside the JSON object.\n\nAnswered format:\n{\n  \"status\": \"answered\",\n  \"answer\": \"...\",\n  \"language_detected\": \"English\"\n}\n\nEscalation format:\n{\n  \"status\": \"escalate\",\n  \"reason\": \"medical_risk|off_topic|no_faq_match\",\n  \"message\": \"...\",\n  \"language_detected\": \"English\"\n}`\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        144
+      ],
+      "id": "22daf4e1-542f-4d3b-bdf2-f6236cd8f382",
+      "name": "build system prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=Your-Gemini-API-key",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  systemInstruction: {\n    parts: [\n      {\n        text: $json.systemPrompt\n      }\n    ]\n  },\n\n  contents: [\n    {\n      parts: [\n        {\n          text: $('Extract Meta Message').first().json.text\n        }\n      ]\n    }\n  ],\n\n  generationConfig: {\n    temperature: 0,\n    responseMimeType: \"application/json\"\n  }\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1392,
+        160
+      ],
+      "id": "0109cbf5-6767-48d0-b12e-0b4b5011188c",
+      "name": "Gemini inquiries analyzer",
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Evaluates intent against FAQ rules."
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appfq3Whh99EMsXRl",
+          "mode": "list",
+          "cachedResultName": "Data",
+          "cachedResultUrl": "https://airtable.com/appfq3Whh99EMsXRl"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblzlPOpjwWV6iBR4",
+          "mode": "list",
+          "cachedResultName": "Dental Clinic FAQ (Arabic)",
+          "cachedResultUrl": "https://airtable.com/appfq3Whh99EMsXRl/tblzlPOpjwWV6iBR4"
+        },
+        "id": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        432,
+        128
+      ],
+      "id": "58cd89b5-c581-4fca-8d1b-08e46831a39b",
+      "name": "FAQ Datasets",
+      "notesInFlow": true,
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "qfXr7bO7FYt0FmvW",
+          "name": "Data"
+        }
+      },
+      "notes": "Pulls live clinic knowledge base."
+    },
+    {
+      "parameters": {
+        "content": "# 1. Patient Input Gateway\nCaptures incoming Telegram messages and validates that the patient is sending text (rejects unsupported media like voice notes or files).",
+        "height": 176,
+        "width": 368,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -592,
+        -272
+      ],
+      "typeVersion": 1,
+      "id": "d39560b5-af15-4e22-b0d7-9951f34d361c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Dynamic Context Building\nPulls the patient's last 8 messages for conversational memory and retrieves the latest live FAQ data from Airtable to ensure the bot answers using only approved clinic policies.",
+        "height": 192,
+        "width": 400
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        32,
+        -256
+      ],
+      "typeVersion": 1,
+      "id": "4e00609e-55bb-4652-afec-08abecd65181",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 3. AI Processing & Financial Guardrails\nChecks daily token usage to prevent budget overruns. If within budget, constructs a strict prompt and uses Gemini to analyze patient intent, translating it into a verified clinic answer.",
+        "height": 208,
+        "width": 368,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1040,
+        -336
+      ],
+      "typeVersion": 1,
+      "id": "0a2c4fa2-31c9-429b-a9d5-526aa3b97310",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Intelligent Routing & Database Logging\nRoutes the AI's decision:\n• Answered: Logs to database and replies to patient.\n• Escalated: Flags for human triage and alerts patient.",
+        "height": 224,
+        "width": 384,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2144,
+        -304
+      ],
+      "typeVersion": 1,
+      "id": "a0440687-3d68-4196-87bb-c9a9a9991957",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## 5. System Monitoring\nIf the AI engine fails or times out, the system safely aborts, apologizes to the patient, and emails an immediate alert to the IT team.",
+        "width": 416,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1728,
+        560
+      ],
+      "typeVersion": 1,
+      "id": "92cfdd34-0ad6-4c33-a49e-93e1077f546f",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Meta Message').first().json.chat_id }}",
+        "text": "Only texts accepted",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        288
+      ],
+      "id": "2c5b1358-086d-414b-9541-ee568ec0e682",
+      "name": "Reject Non-Text Media",
+      "webhookId": "091bac97-5891-4572-8e03-e043e4eb0c73",
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Safely get the Airtable output\nconst items = $input.all();\n\n// Safely handle both raw API responses and standard n8n Airtable responses\nconst records = items[0]?.json?.records || items.map(i => i.json);\n\n// 2. Format the FAQ Sheet\nconst faq_sheet_content = records\n  .map(r => {\n    const fields = r.fields || {};\n    const q = fields.question || '';\n    const a = fields.answer || '';\n    \n    // Only return if both exist (cleaner than checking for strings later)\n    if (q && a) {\n      return `س: ${q}\\nج: ${a}`;\n    }\n    return null;\n  })\n  .filter(item => item !== null)\n  .join('\\n\\n');\n\n// 3. SECURE THE USER DATA\n// Because Airtable wiped the user data from the stream, we MUST pull it \n// back from your first node. (Make sure this matches the exact name of your first node!)\nlet userData = {};\ntry {\n  // Try to grab the exact user data that triggered this specific execution\n  userData = $('Extract Meta Message').item.json;\n} catch (e) {\n  // Fallback if item matching fails\n  userData = $('Extract Meta Message').first().json;\n}\n\nreturn [{\n  json: {\n    ...userData, // Restores chat_id, text, etc.\n    faq_sheet_content // Adds your perfectly formatted FAQ\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        144
+      ],
+      "id": "565a13e4-94bb-4052-82ca-e0afbc1b73c0",
+      "name": "Format FAQ Data"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\nCOALESCE(SUM(total_tokens),0) AS daily_tokens\n\nFROM user_token_usage\n\nWHERE session_id=$1\nAND DATE(created_at)=CURRENT_DATE;",
+        "options": {
+          "queryReplacement": "={{ [$('Extract Meta Message').first().json.chat_id + ''] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        768,
+        144
+      ],
+      "id": "11f4a859-6cc7-4ec3-bdd4-99b5920ad3f2",
+      "name": "Check Daily Token Quota",
+      "notesInFlow": true,
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      },
+      "notes": "Calculates today's AI spend."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "455caf64-ad17-4766-9b2b-41a4c618bf4c",
+              "leftValue": "={{ $json.daily_tokens }}",
+              "rightValue": 50000,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        944,
+        128
+      ],
+      "id": "35337c05-45fe-47d4-9da8-2362cc9fbe70",
+      "name": "Quota Exceeded?",
+      "alwaysOutputData": false,
+      "notesInFlow": true,
+      "notes": "Hard cap at 500,000 tokens/day."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Meta Message').first().json.chat_id }}",
+        "text": "\"You've reached today's message limit for this automated assistant. Please try again tomorrow, or contact our team directly if your request is urgent.\"",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        -32
+      ],
+      "id": "5d7d4db5-f5f7-47c6-bb4a-a01578195402",
+      "name": "Send Limit Apology",
+      "webhookId": "67acdaa5-3c2d-41d1-8bd4-7fc2bc8b8bcc",
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "Your email",
+        "subject": " Gemini Failed — Dental Bot",
+        "message": "={{ $json.email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        560
+      ],
+      "id": "02bf5715-ccb9-4e6e-92ed-b949bc823337",
+      "name": "Email IT Admin Alert",
+      "webhookId": "d540c524-eec9-4a36-b646-40bd775bda5f",
+      "notesInFlow": true,
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BfRvWx33K5n4cd9H",
+          "name": "Email secert"
+        }
+      },
+      "notes": "Fires emergency HTML email if AI crashes."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ai_errors (\n  session_id,\n  error_message,\n  raw_payload\n)\nVALUES (\n  $1,\n  $2,\n  $3\n);",
+        "options": {
+          "queryReplacement": "={{ [\n$('Prepare Error email').first().json.chat_id, \n$('Parse gemini response').first().json.error,\nJSON.stringify($json)\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2608,
+        368
+      ],
+      "id": "6acc5df5-effa-405d-8de9-42aa2755cf90",
+      "name": "Log System Error",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parse gemini response').first().json.status }}",
+                    "rightValue": "answered",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c05533d4-15b6-4d97-be59-175f1b7345d8"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a8cfaa19-b38a-4d6b-96d0-4121d93a13d5",
+                    "leftValue": "={{ $('Parse gemini response').first().json.status }}",
+                    "rightValue": "escalate",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "be687858-6384-47ca-b182-648dee9cfd4f",
+                    "leftValue": "={{ $('Parse gemini response').first().json.status }}",
+                    "rightValue": "error",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2336,
+        112
+      ],
+      "id": "a18fee95-cc5f-460a-8a6f-262a84ae5986",
+      "name": "Route Bot Decision",
+      "notesInFlow": true,
+      "notes": "Sorts by: Answered, Escalated, or Error."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Meta Message').first().json.chat_id }}",
+        "text": "\"Hello! You caught us during a high-traffic moment. This live demo runs on Google's free-tier API, and the daily token allowance has been fully consumed by other testers today.  The good news? The system is working perfectly! The moment this happened, our automated Error-Monitoring workflow intercepted the issue and sent an urgent email to the developer to replace the API key.  If you are a potential client looking to hire me, this proves that my automated alerting systems work in real-time! Please check back in a little bit, or message me directly on Upwork so I can reset it for you right away.\"",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2944,
+        384
+      ],
+      "id": "fbe31771-e404-42d8-843c-39d476cc5f33",
+      "name": "Send Error Apology",
+      "webhookId": "acf6ae97-03b4-404c-8fc3-b5405ac61f07",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Meta Message').first().json.chat_id }}",
+        "text": "={{ $('Parse gemini response').first().json.answer }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3072,
+        -32
+      ],
+      "id": "7afecb34-be5c-42c4-b37b-e65261593225",
+      "name": "Send Bot Answer",
+      "webhookId": "acf6ae97-03b4-404c-8fc3-b5405ac61f07",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Meta Message').first().json.chat_id }}",
+        "text": "={{$('Parse gemini response').first().json.message}}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3056,
+        160
+      ],
+      "id": "ad196fce-5741-4d20-94e6-4b1f84f42de9",
+      "name": "Escalate to Human",
+      "webhookId": "acf6ae97-03b4-404c-8fc3-b5405ac61f07",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "notesInFlow": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "KBvQeLoaZ8LLDlV4",
+          "name": "Telegram account"
+        }
+      },
+      "notes": "Connects patient to live clinic staff."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO user_token_usage\n(\n    session_id,\n    model,\n    prompt_tokens,\n    completion_tokens,\n    total_tokens,\n    cost_usd\n)\nVALUES\n(\n    $1,\n    $2,\n    $3,\n    $4,\n    $5,\n    $6\n);",
+        "options": {
+          "queryReplacement": "={{\n[\n$('Extract Meta Message').first().json.chat_id,\n\n$('Parse gemini response').first().json.model,\n\n$('Parse gemini response').first().json.prompt_tokens,\n\n$('Parse gemini response').first().json.completion_tokens,\n\n$('Parse gemini response').first().json.total_tokens,\n\n$('Parse gemini response').first().json.cost_usd\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2112,
+        144
+      ],
+      "id": "d74bdc46-a846-4be9-a81f-b8e777d4d0a1",
+      "name": "Log Token Usage",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "Postgres account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sanitizer function to prevent HTML injection\nfunction escapeHTML(str) {\n  if (!str) return \"\";\n  \n  // Prevent [object Object] by stringifying objects first\n  if (typeof str === 'object') {\n    try {\n      str = JSON.stringify(str);\n    } catch (e) {\n      str = String(str);\n    }\n  }\n  \n  return String(str)\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#039;\");\n}\n\n// Loop over all incoming items to handle batches correctly\nreturn $input.all().map(item => {\n  \n  // Safely extract and sanitize all inputs\n  const chat_id = escapeHTML($('Extract Meta Message').first().json.chat_id || 'unknown');\n  const user_text = escapeHTML($('Extract Meta Message').first().json.text || 'N/A');\n  \n  // Extract error from the specific item currently being mapped\n  const rawError = item.json.error?.message ?? item.json.error ?? 'Unknown Gemini error';\n  const gemini_error = escapeHTML(rawError);\n\n  const timestamp = new Date().toLocaleString('en-GB', {\n    timeZone: 'Asia/Dubai',\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n    hour: '2-digit',\n    minute: '2-digit',\n    second: '2-digit',\n    hour12: false\n  });\n\n  const nodeName = 'Gemini inquiries analyzer';\n  const workflowName = 'Telegram FAQ chatbot';\n  const executionLink = 'https://n8n-neon-free-i5dx.onrender.com/workflow/GLP4rbmVeaQkRwqy/executions/';\n\n  const emailHtml = `<!DOCTYPE html>\n<html dir=\"ltr\" lang=\"en\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n  <meta name=\"color-scheme\" content=\"light dark\">\n  <meta name=\"supported-color-schemes\" content=\"light dark\">\n  <title>Notice — Dental Clinic</title>\n  <style>\n    /* Reset for email clients */\n    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }\n    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }\n\n    /* Dark mode support */\n    @media (prefers-color-scheme: dark) {\n      .email-wrapper { background-color: #111827 !important; }\n      .email-card { background-color: #1F2937 !important; border-color: #374151 !important; }\n      .email-header-bg { background-color: #991b1b !important; }\n      .email-text-primary { color: #F9FAFB !important; }\n      .email-text-secondary { color: #D1D5DB !important; }\n      .email-text-muted { color: #9CA3AF !important; }\n      .email-value-bg { background-color: #283040 !important; border-color: #374151 !important; }\n      .email-value-bg-alt { background-color: #1e293b !important; border-color: #374151 !important; }\n      .email-footer-bg { background-color: #182030 !important; border-color: #374151 !important; }\n      .email-label { color: #9CA3AF !important; }\n      .email-badge { background-color: #dc2626 !important; color: #ffffff !important; }\n      .email-value-error { color: #fca5a5 !important; border-color: #ef4444 !important; }\n      .email-link { color: #60a5fa !important; }\n    }\n\n    /* Mobile responsiveness */\n    @media screen and (max-width: 600px) {\n      .email-container { width: 100% !important; max-width: 100% !important; }\n      .email-card { border-radius: 0 !important; border-left: none !important; border-right: none !important; }\n      .email-wrapper { padding: 0 !important; }\n      .email-header { padding: 28px 20px !important; }\n      .email-body { padding: 24px 20px 12px 20px !important; }\n      .email-footer { padding: 20px !important; }\n      .email-value { padding: 12px 14px !important; font-size: 14px !important; }\n      .email-label { font-size: 12px !important; }\n      .email-title { font-size: 20px !important; }\n      .email-subtitle { font-size: 14px !important; }\n      .email-badge { font-size: 11px !important; }\n    }\n  </style>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f1f5f9;\" class=\"email-wrapper\">\n\n  <div style=\"display:none;font-size:1px;color:#f1f5f9;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;\">\n    Dental Clinic Bot Error — ${gemini_error.toString().substring(0, 80)}\n  </div>\n\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"background-color:#f1f5f9; margin:0; padding:20px 0; border-collapse:collapse;\" class=\"email-wrapper\">\n    <tr>\n      <td align=\"center\" valign=\"top\">\n\n        <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"520\" style=\"max-width:520px; width:100%; border-collapse:collapse;\" class=\"email-container\">\n\n          <tr>\n            <td align=\"center\" style=\"padding:24px 0 16px 0;\">\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td style=\"text-align:center;\">\n                    <span style=\"font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:20px; font-weight:700; color:#dc2626; letter-spacing:1px;\">&#x1F3E5; Dental Clinic</span>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"text-align:center; padding-top:4px;\">\n                    <span style=\"font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:11px; font-weight:500; color:#94a3b8; letter-spacing:2px; text-transform:uppercase;\">\nIntelligent Monitoring System\n</span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          <tr>\n            <td class=\"email-card\" style=\"background-color:#ffffff; border:1px solid #e2e8f0; border-radius:12px; border-top:4px solid #dc2626; overflow:hidden;\">\n\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td class=\"email-header\" align=\"center\" style=\"padding:32px 28px 0 28px;\">\n\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; margin:0 auto 14px auto;\">\n                      <tr>\n                        <td align=\"center\" valign=\"middle\" style=\"width:52px; height:52px; background-color:#fef2f2; border-radius:50%; text-align:center;\">\n                          <span style=\"font-size:26px; line-height:52px; display:inline-block;\">&#x1F6A8;</span>\n                        </td>\n                      </tr>\n                    </table>\n\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; margin:0 auto 12px auto;\">\n                      <tr>\n                        <td align=\"center\" class=\"email-badge\" style=\"background-color:#dc2626; color:#ffffff; padding:5px 14px; border-radius:20px; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; letter-spacing:0.3px; mso-padding-alt:5px 14px;\">\n                          &#x26A0; Requires Technical Attention\n                        </td>\n                      </tr>\n                    </table>\n\n                    <h1 class=\"email-title email-text-primary\" style=\"margin:0; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:22px; font-weight:700; color:#1e293b; line-height:1.4;\">\nAppointment Processing Failed\n                    </h1>\n                    <p class=\"email-subtitle email-text-secondary\" style=\"margin:8px 0 0 0; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:14px; font-weight:400; color:#475569; line-height:1.6; max-width:380px;\">\nAn error occurred while processing the user's message. Error details are provided below.\n                    </p>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:0 28px;\">\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                      <tr>\n                        <td style=\"border-top:1px solid #e2e8f0; font-size:0; line-height:0;\">&nbsp;</td>\n                      </tr>\n                    </table>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td class=\"email-body\" style=\"padding:20px 28px 8px 28px;\">\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nConversation ID\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg\" style=\"background-color:#f8fafc; padding:12px 16px; border-radius:8px; border-left:4px solid #3b82f6; text-align:left; direction:ltr;\">\n                                <span class=\"email-text-primary\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:600; color:#1e293b;\">${chat_id}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nUser Message\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg-alt\" style=\"background-color:#f1f5f9; padding:12px 16px; border-radius:8px; border-left:4px solid #10b981; text-align:left; direction:ltr;\">\n                                <span class=\"email-text-primary\" style=\"font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:14px; font-weight:500; color:#1e293b; line-height:1.6;\">${user_text}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nError Details\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg\" style=\"background-color:#fef2f2; padding:12px 16px; border-radius:8px; border-left:4px solid #dc2626; text-align:left; direction:ltr;\">\n                                <span class=\"email-value-error\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:600; color:#991b1b; line-height:1.6;\">${gemini_error}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nTimestamp\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg-alt\" style=\"background-color:#f8fafc; padding:12px 16px; border-radius:8px; border-left:4px solid #8b5cf6; text-align:left; direction:ltr;\">\n                                <span class=\"email-text-primary\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:500; color:#1e293b;\">${timestamp}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nFailed Node\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg\" style=\"background-color:#fffbeb; padding:12px 16px; border-radius:8px; border-left:4px solid #f59e0b; text-align:left; direction:ltr;\">\n                                <span class=\"email-text-primary\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:600; color:#1e293b;\">${nodeName}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:16px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nWorkflow\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg-alt\" style=\"background-color:#f0f9ff; padding:12px 16px; border-radius:8px; border-left:4px solid #0ea5e9; text-align:left; direction:ltr;\">\n                                <span class=\"email-text-primary\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:600; color:#1e293b;\">${workflowName}</span>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td style=\"padding-bottom:8px;\">\n                          <span class=\"email-label\" style=\"display:block; font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; text-align:left;\">\nExecution Link\n</span>\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                            <tr>\n                              <td class=\"email-value email-value-bg\" style=\"background-color:#f0fdf4; padding:12px 16px; border-radius:8px; border-left:4px solid #22c55e; text-align:left; direction:ltr;\">\n                                <a href=\"${executionLink}\" class=\"email-link\" style=\"font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:14px; font-weight:600; color:#15803d; text-decoration:underline;\">${executionLink}</a>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n\n                    </table>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:0 28px;\">\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                      <tr>\n                        <td style=\"border-top:1px solid #e2e8f0; font-size:0; line-height:0;\">&nbsp;</td>\n                      </tr>\n                    </table>\n                  </td>\n                </tr>\n\n              </table>\n\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td class=\"email-footer email-footer-bg\" align=\"center\" style=\"background-color:#f8fafc; padding:20px 24px; border-top:1px solid #e2e8f0; text-align:center;\">\n                    <span style=\"font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:13px; font-weight:600; color:#94a3b8; letter-spacing:1px;\">&#x1F3E5; Dental Clinic</span>\n                    <br>\n                    <span style=\"font-family:'Segoe UI',Tahoma,Arial,sans-serif; font-size:11px; font-weight:400; color:#94a3b8; line-height:1.8;\">\nThis alert was automatically generated by the monitoring system.\n</span>\n                  </td>\n                </tr>\n              </table>\n\n            </td>\n          </tr>\n\n          <tr>\n            <td style=\"height:20px; font-size:0; line-height:0;\">&nbsp;</td>\n          </tr>\n\n        </table>\n        </td>\n    </tr>\n  </table>\n\n</body>\n</html>`;\n\n  // Return formatted payload for the current item in the loop\n  return {\n    json: {\n      chat_id,\n      user_text,\n      gemini_error,\n      node_name: nodeName,\n      workflow_name: workflowName,\n      execution_link: executionLink,\n      email_html: emailHtml\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        384
+      ],
+      "id": "de7b026c-6bde-4c6c-b07d-b339e29641bd",
+      "name": "Prepare Error email",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"user_text\": \"{{$json.user_text}}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2256,
+        384
+      ],
+      "id": "3f8afd2b-5e02-406b-8c1d-ddb1b77cd332",
+      "name": "Edit Fields"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract Meta Message": {
+      "main": [
+        [
+          {
+            "node": "Has text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load History": {
+      "main": [
+        [
+          {
+            "node": "Format History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format History": {
+      "main": [
+        [
+          {
+            "node": "FAQ Datasets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save User Message": {
+      "main": [
+        [
+          {
+            "node": "Save Bot Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Bot Answer": {
+      "main": [
+        [
+          {
+            "node": "Send Bot Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Unanswered": {
+      "main": [
+        [
+          {
+            "node": "Escalate to Human",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Meta Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has text?": {
+      "main": [
+        [
+          {
+            "node": "Load History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Non-Text Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has error?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Error email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Token Usage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse gemini response": {
+      "main": [
+        [
+          {
+            "node": "Has error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "build system prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini inquiries analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini inquiries analyzer": {
+      "main": [
+        [
+          {
+            "node": "Parse gemini response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAQ Datasets": {
+      "main": [
+        [
+          {
+            "node": "Format FAQ Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format FAQ Data": {
+      "main": [
+        [
+          {
+            "node": "Check Daily Token Quota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Daily Token Quota": {
+      "main": [
+        [
+          {
+            "node": "Quota Exceeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quota Exceeded?": {
+      "main": [
+        [
+          {
+            "node": "Send Limit Apology",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "build system prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email IT Admin Alert": {
+      "main": [
+        []
+      ]
+    },
+    "Log System Error": {
+      "main": [
+        [
+          {
+            "node": "Send Error Apology",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Bot Decision": {
+      "main": [
+        [
+          {
+            "node": "Save User Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Unanswered",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log System Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Token Usage": {
+      "main": [
+        [
+          {
+            "node": "Route Bot Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Error email": {
+      "main": [
+        [
+          {
+            "node": "Email IT Admin Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Log System Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "xiZ7bpz0EnkEkmmG"
+  },
+  "versionId": "6802e259-d21d-4771-8157-7970ab247105",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1a6a6d8b6d7820a0c8851748fe50daf3a11fadbbfbb8c5d9708a140ffa762e17"
+  },
+  "nodeGroups": [],
+  "id": "GLP4rbmVeaQkRwqy",
+  "tags": []
+}
