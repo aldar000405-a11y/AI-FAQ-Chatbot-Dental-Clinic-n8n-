@@ -6,7 +6,7 @@ A production-grade AI chatbot for a dental clinic's Telegram support, built end-
 
 ## Architecture
 
-![System overview](docs/system-overview.png)
+![System overview](system-overview.png)
 
 The system is three connected workflows sharing one PostgreSQL database:
 
