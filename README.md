@@ -2,6 +2,12 @@
 
 A production-grade AI chatbot for a dental clinic's Telegram support, built end-to-end in n8n with Google Gemini, PostgreSQL, and Airtable. Unlike a basic FAQ bot, it distinguishes medical-risk messages from routine questions and escalates the former to staff instead of letting the AI guess — while routine questions get instant, FAQ-grounded answers in the patient's own language.
 
+## Live Demo
+Want to test the live production system right now? 
+* **Interact with the Bot:** [[Click here to chat with the AI on Telegram](https://t.me/myassistan0tbot)]
+**Important Note on Free-Tier Quotas:** To keep this portfolio completely free to run, the live demo uses the **Google AI Studio Free Tier Key**. 
+* If multiple users heavily test the bot on the same day, the global Gemini daily token quota may temporarily run out. 
+* If the bot replies with a quota message, **do not worry—the system is not broken!** In fact, the moment the quota hits, the built-in **Global Error Monitor** automatically triggers and instantly sends an email alert to my inbox. I will swap in a fresh API key shortly.
 ---
 
 ## Architecture
