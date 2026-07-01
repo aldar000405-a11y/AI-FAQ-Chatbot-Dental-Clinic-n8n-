@@ -16,7 +16,7 @@ The system is three connected workflows sharing one PostgreSQL database:
 | Daily Report Digest | Schedule (8:20 AM daily) | Summarizes usage, errors, and cost to Slack + email |
 | Global Error Monitor | Any workflow error (account-wide) | Instant IT alert if any workflow fails, anywhere |
 
-![Main flow](docs/main-flow-diagram.png)
+![Main flow](full-architecture-board.png)
 
 ---
 
