@@ -1,0 +1,116 @@
+{
+  "name": "Global Error Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Global System Error Monitor\nActs as a clinic-wide safety net. \nIf ANY automated workflow (like the Telegram Bot or Daily Report) crashes, this system intercepts the failure and immediately emails a detailed diagnostic report to the IT support team.",
+        "height": 224,
+        "width": 448,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        32,
+        -288
+      ],
+      "typeVersion": 1,
+      "id": "53eb123a-d0aa-4930-b71c-7d2dcd4e6b06",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d90c032a-2525-4f79-ac14-d34168458146",
+      "name": "Global Error Trigger",
+      "notesInFlow": true,
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "notes": "istens for crashes across all clinic workflows."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sanitizer function to prevent HTML layout breaking and [object Object]\nfunction escapeHTML(str) {\n  if (!str) return \"\";\n  \n  if (typeof str === 'object') {\n    try {\n      str = JSON.stringify(str);\n    } catch (e) {\n      str = String(str);\n    }\n  }\n  \n  return String(str)\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#039;\");\n}\n\nreturn $input.all().map(item => {\n  // 1. Safely extract variables\n  const workflowName = item.json.workflow?.name || 'Unknown Workflow';\n  const workflow = escapeHTML(workflowName);\n  \n  const executionId = escapeHTML(item.json.execution?.id || 'N/A');\n  const executionUrl = item.json.execution?.url || '#'; // Keep URL raw for the href link\n  const mode = escapeHTML(item.json.execution?.mode || 'N/A');\n  const node = escapeHTML(item.json.execution?.lastNodeExecuted || 'Unknown Node');\n  \n  // 2. Extract error safely, checking multiple possible paths\n  const rawError = item.json.execution?.error?.message ?? item.json.execution?.error ?? 'Unknown system error';\n  const error = escapeHTML(rawError);\n\n  const time = new Date().toLocaleString(\"en-US\", {\n    timeZone: \"Asia/Dubai\",\n    dateStyle: \"long\",\n    timeStyle: \"medium\"\n  });\n\n  // 3. Build HTML Template\n  const body = `<!DOCTYPE html>\n<html lang=\"en\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <meta name=\"color-scheme\" content=\"light dark\">\n  <meta name=\"supported-color-schemes\" content=\"light dark\">\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n  <title>HAVA - Workflow Failure Alert</title>\n  <style>\n    /* Reset & Base */\n    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }\n    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }\n    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }\n\n    /* Dark mode support */\n    @media (prefers-color-scheme: dark) {\n      .email-wrapper { background-color: #111827 !important; }\n      .email-card { background-color: #1F2937 !important; border-color: #374151 !important; }\n      .email-text-primary { color: #F9FAFB !important; }\n      .email-text-secondary { color: #D1D5DB !important; }\n      .email-text-muted { color: #9CA3AF !important; }\n      .email-row-alt { background-color: #283040 !important; }\n      .email-border { border-color: #374151 !important; }\n      .email-footer { color: #6B7280 !important; }\n    }\n\n    /* Mobile responsiveness */\n    @media screen and (max-width: 600px) {\n      .email-container { width: 100% !important; max-width: 100% !important; }\n      .email-card { border-radius: 0 !important; border-left: none !important; border-right: none !important; }\n      .email-wrapper { padding: 0 !important; }\n      .email-header { padding: 28px 20px !important; }\n      .email-body { padding: 28px 20px !important; }\n      .email-footer-cell { padding: 24px 20px !important; }\n      .email-data-table td { padding: 14px 16px !important; font-size: 15px !important; }\n      .email-data-label { width: 130px !important; }\n      .email-title { font-size: 20px !important; }\n      .email-subtitle { font-size: 15px !important; }\n      .email-btn { padding: 16px 28px !important; font-size: 16px !important; width: 100% !important; box-sizing: border-box !important; }\n      .email-btn-wrapper { padding: 0 !important; }\n    }\n\n    /* Apple Mail / iOS fixes */\n    @supports (-webkit-touch-callout: none) {\n      .email-btn { -webkit-tap-highlight-color: transparent; }\n    }\n  </style>\n</head>\n\n<body style=\"margin:0; padding:0; background-color:#f3f4f6;\">\n\n  <div style=\"display:none;font-size:1px;color:#f3f4f6;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;\">\n    Workflow \"${workflow}\" failed at ${time}. Tap to review the execution details and error logs.\n  </div>\n\n  <table role=\"presentation\" class=\"email-wrapper\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"background-color:#f3f4f6; margin:0; padding:20px 0;\">\n    <tr>\n      <td align=\"center\" valign=\"top\">\n\n        <table role=\"presentation\" class=\"email-container\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"600\" style=\"max-width:600px; width:100%; border-collapse:collapse;\">\n\n          <tr>\n            <td align=\"center\" style=\"padding:24px 0 20px 0;\">\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td style=\"text-align:center;\">\n                    <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:22px; font-weight:700; color:#dc2626; letter-spacing:3px; text-transform:uppercase;\">HAVA</span>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"text-align:center; padding-top:4px;\">\n                    <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:11px; font-weight:500; color:#9ca3af; letter-spacing:4px; text-transform:uppercase;\">System Monitor</span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          <tr>\n            <td class=\"email-card\" style=\"background-color:#ffffff; border:1px solid #e5e7eb; border-radius:12px; border-top:4px solid #dc2626; overflow:hidden;\">\n\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td class=\"email-header\" align=\"center\" style=\"padding:36px 32px 0 32px;\">\n\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; margin:0 auto 16px auto;\">\n                      <tr>\n                        <td align=\"center\" valign=\"middle\" style=\"width:56px; height:56px; background-color:#fef2f2; border-radius:50%; text-align:center; vertical-align:middle;\">\n                          <span style=\"font-size:28px; line-height:56px; display:inline-block;\">&#x26A0;</span>\n                        </td>\n                      </tr>\n                    </table>\n\n                    <h1 class=\"email-title\" style=\"margin:0; font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:22px; font-weight:700; color:#1f2937; letter-spacing:-0.3px; line-height:1.3;\">\n                      Workflow Execution Failed\n                    </h1>\n                    <p class=\"email-subtitle email-text-secondary\" style=\"margin:10px 0 0 0; font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:400; color:#4b5563; line-height:1.5; max-width:420px;\">\n                      A workflow has failed and requires your immediate attention. Please review the details below.\n                    </p>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:0 32px;\">\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                      <tr>\n                        <td style=\"border-top:1px solid #e5e7eb; font-size:0; line-height:0;\">&nbsp;</td>\n                      </tr>\n                    </table>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td class=\"email-body\" style=\"padding:24px 32px 12px 32px;\">\n                    <table role=\"presentation\" class=\"email-data-table\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n\n                      <tr>\n                        <td class=\"email-data-label email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; border-radius:8px 8px 0 0; width:160px;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Workflow</span>\n                        </td>\n                        <td class=\"email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; border-left:none; border-radius:0 8px 0 0;\">\n                          <span class=\"email-text-primary\" style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:600; color:#1f2937;\">${workflow}</span>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td class=\"email-data-label\" style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:none; width:160px;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Execution ID</span>\n                        </td>\n                        <td style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:none; border-left:none;\">\n                          <span class=\"email-text-primary\" style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:500; color:#1f2937; font-family:'SF Mono', 'Fira Code', 'Courier New', monospace;\">${executionId}</span>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td class=\"email-data-label email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; width:160px;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Mode</span>\n                        </td>\n                        <td class=\"email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; border-left:none;\">\n                          <span class=\"email-text-primary\" style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:500; color:#1f2937;\">${mode}</span>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td class=\"email-data-label\" style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:none; width:160px;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Failed Node</span>\n                        </td>\n                        <td style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; border-bottom:none; border-left:none;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:500; color:#dc2626;\">${node}</span>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td class=\"email-data-label email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; width:160px; vertical-align:top;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Error</span>\n                        </td>\n                        <td class=\"email-row-alt\" style=\"padding:14px 18px; background-color:#f9fafb; border:1px solid #e5e7eb; border-bottom:none; border-left:none; vertical-align:top;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:600; color:#dc2626; line-height:1.5;\">${error}</span>\n                        </td>\n                      </tr>\n\n                      <tr>\n                        <td class=\"email-data-label\" style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; width:160px; border-radius:0 0 0 8px;\">\n                          <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px;\">Timestamp</span>\n                        </td>\n                        <td style=\"padding:14px 18px; background-color:#ffffff; border:1px solid #e5e7eb; border-left:none; border-radius:0 0 8px 0;\">\n                          <span class=\"email-text-primary\" style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:500; color:#1f2937;\">${time}</span>\n                        </td>\n                      </tr>\n\n                    </table>\n                  </td>\n                </tr>\n\n                <tr>\n                  <td class=\"email-btn-wrapper\" style=\"padding:8px 32px 36px 32px;\">\n                    <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">\n                      <tr>\n                        <td align=\"center\">\n                          <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; margin:0 auto;\">\n                            <tr>\n                              <td align=\"center\" style=\"border-radius:8px; background-color:#dc2626;\" bgcolor=\"#dc2626\">\n                                <a href=\"${executionUrl}\" class=\"email-btn\" target=\"_blank\" style=\"display:inline-block; padding:16px 36px; font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none; border-radius:8px; letter-spacing:0.3px; min-width:200px; text-align:center;\">\n                                  Open Execution &rarr;\n                                </a>\n                              </td>\n                            </tr>\n                          </table>\n                        </td>\n                      </tr>\n                    </table>\n                  </td>\n                </tr>\n\n              </table>\n            </td>\n          </tr>\n\n          <tr>\n            <td class=\"email-footer-cell\" align=\"center\" style=\"padding:24px 20px 32px 20px;\">\n              <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse;\">\n                <tr>\n                  <td style=\"text-align:center;\">\n                    <span style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:13px; font-weight:600; color:#9ca3af; letter-spacing:2px; text-transform:uppercase;\">HAVA</span>\n                  </td>\n                </tr>\n                <tr>\n                  <td style=\"text-align:center; padding-top:8px;\">\n                    <span class=\"email-footer\" style=\"font-family:'Segoe UI', system-ui, -apple-system, Arial, sans-serif; font-size:12px; font-weight:400; color:#9ca3af; line-height:1.5;\">\n                      This alert was generated automatically by the n8n Global Error Monitor.<br>\n                      You are receiving this because you are configured as a workflow administrator.\n                    </span>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n        </table>\n        </td>\n    </tr>\n  </table>\n\n</body>\n</html>`;\n\n  return {\n    json: {\n      subject: `[HAVA] Workflow Failed — ${workflowName}`,\n      body\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "55f29ae6-fa56-44a1-a755-b1c26b91fe83",
+      "name": "Format HTML Alert",
+      "notesInFlow": true,
+      "notes": "Extracts the exact error, failed node, and execution ID."
+    },
+    {
+      "parameters": {
+        "sendTo": "Your email",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "612d4bf2-e630-4bcc-b50e-933e98eca9ca",
+      "name": "Email IT Support",
+      "webhookId": "46c143c8-8444-4302-b751-36e101be2594",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BfRvWx33K5n4cd9H",
+          "name": "Email secert"
+        }
+      },
+      "notes": "Dispatches a critical diagnostic email to admins."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Global Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format HTML Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format HTML Alert": {
+      "main": [
+        [
+          {
+            "node": "Email IT Support",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "4c5c56d5-066b-409b-9b7a-d5efc52bf544",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1a6a6d8b6d7820a0c8851748fe50daf3a11fadbbfbb8c5d9708a140ffa762e17"
+  },
+  "nodeGroups": [],
+  "id": "xiZ7bpz0EnkEkmmG",
+  "tags": []
+}
