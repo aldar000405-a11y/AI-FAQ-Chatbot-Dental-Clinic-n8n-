@@ -1,0 +1,351 @@
+{
+  "name": "Send daily report workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 40
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        16
+      ],
+      "id": "fe717af8-cb31-4b63-8945-17ae46ba6e09",
+      "name": "Schedule Trigger",
+      "notesInFlow": true,
+      "notes": "Triggers the workflow daily at 8:20 AM (Dubai Time)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT session_id, question, reason, created_at\nFROM unanswered_questions\nWHERE created_at >= now() - INTERVAL '24 hours'\nORDER BY created_at DESC\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        16
+      ],
+      "id": "afab9083-4808-4074-a22a-0daa9ef50256",
+      "name": "Unanswered",
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "FAQ questions"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Fetches unresolved patient queries and medical risks from the last 24 hours."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT session_id, error_message, created_at\nFROM ai_errors\nWHERE created_at >= now() - INTERVAL '24 hours'\nORDER BY created_at DESC\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ],
+      "id": "dbc8ab1f-7867-408f-93dc-439e4f1d1d4d",
+      "name": "ai_errors",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "FAQ questions"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Retrieves AI engine errors and system crash logs."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    COALESCE(SUM(\n        CASE\n            -- Shift the database timestamp to Dubai time before checking the date\n            WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dubai')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dubai')::DATE\n            THEN total_tokens\n            ELSE 0\n        END\n    ),0) AS today_tokens,\n\n    COALESCE(SUM(total_tokens),0) AS total_tokens,\n\n    COALESCE(SUM(\n        CASE\n            -- Shift the database timestamp to Dubai time before checking the date\n            WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dubai')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dubai')::DATE\n            THEN cost_usd\n            ELSE 0\n        END\n    ),0) AS today_cost,\n\n    COALESCE(SUM(cost_usd),0) AS total_cost\n\nFROM user_token_usage;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        784,
+        0
+      ],
+      "id": "dcd6f21d-0129-4115-9b5a-3a331a4687e0",
+      "name": "AI Token Stats",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "postgres": {
+          "id": "WQVxx5FBDNNp6Eki",
+          "name": "FAQ questions"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Calculates today's and all-time API token usage and financial costs."
+    },
+    {
+      "parameters": {
+        "content": "#  Hava Clinic - Daily AI FAQ Bot Digest\nAutomated infrastructure to monitor the AI patient assistant. \nExtracts daily metrics (Unanswered Queries, Medical Escalations, AI Errors, and Token Costs) and distributes formatted reports to stakeholders.\nRuns: Daily at 8:20 AM (Dubai Time)",
+        "height": 208,
+        "width": 480,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -208,
+        -416
+      ],
+      "typeVersion": 1,
+      "id": "cf5fbdb6-8885-4605-b8f4-c84fa1054c34",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Database Extraction\nPulls the last 24 hours of telemetry data from the PostgreSQL database:\n• Escalated patient queries & medical risks\n• AI system crashes or errors\n• OpenAI/Anthropic Token Usage & API Cost Data",
+        "height": 208,
+        "width": 448
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        336
+      ],
+      "typeVersion": 1,
+      "id": "036e6e34-c7b9-4a62-8106-d6a2b947a381",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 2. Internal Operations Alert\nFormats the extracted AI metrics into a quick-read plain text digest. \nPushes immediately to the #all-grants Slack channel so the internal team can triage system errors and monitor daily API costs.",
+        "height": 208,
+        "width": 416,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        976,
+        368
+      ],
+      "typeVersion": 1,
+      "id": "455385fe-c3d1-4afb-9c49-0bf7e4584884",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Executive Email Generation\nProcesses the raw data into a responsive, branded HTML/CSS executive dashboard.\nHighlights critical Medical Risk escalations and daily AI financial spend for clinic management.",
+        "height": 192,
+        "width": 416,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1008,
+        -448
+      ],
+      "typeVersion": 1,
+      "id": "6449f3d0-348c-46e0-9477-4c03fa15cc63",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "Your Slack channel",
+          "mode": "name"
+        },
+        "text": "={{ $json.message }}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        640,
+        -256
+      ],
+      "id": "72fdf05b-8c53-458c-9419-3a2e5924723a",
+      "name": "Send Slack Alert",
+      "webhookId": "f9b39676-be68-4e8d-9832-5cab92e5bd83",
+      "alwaysOutputData": false,
+      "notesInFlow": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "slackApi": {
+          "id": "giMrwoqDSAd7BdjM",
+          "name": "notification"
+        }
+      },
+      "notes": "Pushes the operational digest to the internal team channel."
+    },
+    {
+      "parameters": {
+        "sendTo": "Your email",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.message }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1232,
+        -32
+      ],
+      "id": "2c0d130a-6468-4ec2-b1cb-bfce1fe200c4",
+      "name": "Send Executive Email",
+      "webhookId": "99681941-42b1-47fb-9f78-29b676dfd2ea",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "BfRvWx33K5n4cd9H",
+          "name": "Email secert"
+        }
+      },
+      "notes": "Emails the final visual dashboard to the clinic management team."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sanitizer function to prevent HTML injection\nfunction escapeHTML(str) {\n  if (!str) return \"\";\n  return String(str)\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#039;\");\n}\n// 1. Fetch data nodes\nconst Unanswered = $('Unanswered').all().filter(item => item.json.question);\nconst ai_error = $('ai_errors').all().filter(item => item.json.error_message);\nconst tokenStats = $('AI Token Stats').first().json;\n\n// 2. Parse AI metrics safely\nconst usedToday = Number(tokenStats.today_tokens || 0);\nconst usedTotal = Number(tokenStats.total_tokens || 0);\nconst todayCost = Number(tokenStats.today_cost || 0);\nconst totalCost = Number(tokenStats.total_cost || 0);\n\nconst today = new Date();\nconst formatDate = today.toLocaleDateString('en-US', {\n  timeZone: 'Asia/Dubai',\n  month: 'long',\n  day: 'numeric',\n  year: 'numeric'\n});\n\nconst unansweredCount = Unanswered.length;\nconst errorCount = ai_error.length;\n\nconst medicalRisk = [];\nconst otherQuestions = [];\n\nfor (const item of Unanswered) {\n  if (item.json.reason?.toLowerCase() === \"medical_risk\") {\n    medicalRisk.push(item);\n  } else {\n    otherQuestions.push(item);\n  }\n}\n\n// 3. Build HTML/CSS Template\nlet htmlMessage = `\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Hava AI Digest</title>\n  <style type=\"text/css\">\n    /* Reset and base */\n    body { margin: 0; padding: 0; min-width: 100%; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }\n    table { border-collapse: collapse; border-spacing: 0; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }\n    td { padding: 0; }\n    img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; display: block; }\n    \n    /* Mobile responsiveness */\n    @media only screen and (max-width: 600px) {\n      .email-wrapper { padding: 8px !important; }\n      .email-container { border-radius: 12px !important; }\n      .email-header { padding: 28px 16px !important; }\n      .email-header h1 { font-size: 24px !important; letter-spacing: 3px !important; }\n      .date-row { padding: 20px 16px 0 !important; }\n      .stats-card { margin: 20px 16px 0 !important; padding: 20px !important; }\n      .status-strip { margin: 16px 16px 0 !important; }\n      .status-pill { flex: 1 1 100% !important; }\n      .all-clear { margin: 20px 16px 0 !important; padding: 24px 16px !important; }\n      .section { margin: 20px 16px 0 !important; }\n      .section-content { padding: 14px 16px !important; }\n      .section-header { padding: 12px 16px !important; }\n      .stat-cell { display: block !important; width: 100% !important; padding: 8px 0 !important; }\n      .stat-row td { display: block !important; width: 100% !important; }\n      .email-footer { padding: 20px 16px !important; }\n    }\n    \n    @media only screen and (max-width: 480px) {\n      .stat-value { font-size: 20px !important; }\n      .email-header h1 { font-size: 22px !important; letter-spacing: 2px !important; }\n    }\n  </style>\n</head>\n<body style=\"margin:0;padding:0;background-color:#f4f7f6;\">\n  <!--[if mso]>\n  <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"background-color:#f4f7f6;\">\n  <tr>\n  <td>\n  <![endif]-->\n  \n  <div class=\"email-wrapper\" style=\"width:100%;background-color:#f4f7f6;padding:16px;text-align:center;\">\n    \n    <!-- Main Container -->\n    <table role=\"presentation\" class=\"email-container\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"640\" style=\"max-width:640px;width:100%;margin:0 auto;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 16px rgba(15,118,110,0.08);text-align:left;\">\n      <tr>\n        <td>\n          \n          <!-- Header Section -->\n          <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n            <tr>\n              <td class=\"email-header\" style=\"background:linear-gradient(135deg,#0f766e 0%,#14b8a6 100%);padding:40px 24px;text-align:center;\">\n                <h1 style=\"margin:0;color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:28px;font-weight:800;letter-spacing:4px;text-transform:uppercase;line-height:1.2;\">HAVA</h1>\n                <p style=\"margin:8px 0 0 0;color:#ccfbf1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:500;line-height:1.4;\">AI Infrastructure &amp; Operations Digest</p>\n              </td>\n            </tr>\n            <tr>\n              <td style=\"height:4px;background-color:#0d5c56;font-size:0;line-height:0;\">&nbsp;</td>\n            </tr>\n          </table>\n          \n          <!-- Date Badge -->\n          <table role=\"presentation\" class=\"date-row\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"padding:24px 24px 0;\">\n            <tr>\n              <td style=\"text-align:center;\">\n                <span style=\"display:inline-block;background-color:#f1f5f9;color:#64748b;padding:6px 16px;border-radius:9999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;\">${formatDate}</span>\n              </td>\n            </tr>\n          </table>\n          \n          <!-- AI Resource Consumption Card -->\n          <table role=\"presentation\" class=\"stats-card\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:24px 24px 0;background-color:#f0fdfa;border:1px solid #ccfbf1;border-radius:12px;max-width:calc(100% - 48px);\">\n            <tr>\n              <td style=\"padding:24px;\">\n                <!-- Card Header -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <tr>\n                    <td style=\"vertical-align:middle;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\">\n                        <tr>\n                          <td style=\"width:8px;\">\n                            <span style=\"display:inline-block;width:6px;height:6px;background-color:#14b8a6;border-radius:50%;vertical-align:middle;\">&nbsp;</span>\n                          </td>\n                          <td style=\"padding-left:8px;\">\n                            <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;\">AI Resource Consumption</span>\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                    <td style=\"text-align:right;vertical-align:middle;\">\n                      <span style=\"display:inline-block;background-color:#ccfbf1;color:#0f766e;padding:4px 12px;border-radius:9999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;\">Today</span>\n                    </td>\n                  </tr>\n                </table>\n                \n                <!-- Divider -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:16px 0;\">\n                  <tr><td style=\"border-top:1px solid #ccfbf1;font-size:0;line-height:0;\">&nbsp;</td></tr>\n                </table>\n                \n                <!-- Stats Grid -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <!-- Row 1: Tokens -->\n                  <tr class=\"stat-row\">\n                    <td class=\"stat-cell\" style=\"width:50%;padding:0 8px 0 0;vertical-align:top;\">\n                      <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;\">Today&apos;s Tokens</span>\n                      <span class=\"stat-value\" style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:22px;font-weight:700;color:#0f172a;\">${usedToday.toLocaleString()}</span>\n                    </td>\n                    <td class=\"stat-cell\" style=\"width:50%;padding:0 0 0 8px;vertical-align:top;\">\n                      <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;\">Total Tokens</span>\n                      <span class=\"stat-value\" style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:22px;font-weight:700;color:#0f172a;\">${usedTotal.toLocaleString()}</span>\n                    </td>\n                  </tr>\n                  <!-- Spacer -->\n                  <tr><td colspan=\"2\" style=\"height:16px;font-size:0;line-height:0;\">&nbsp;</td></tr>\n                  <!-- Row 2: Costs -->\n                  <tr class=\"stat-row\">\n                    <td class=\"stat-cell\" style=\"width:50%;padding:0 8px 0 0;vertical-align:top;\">\n                      <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;\">Today&apos;s Cost</span>\n                      <span style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:22px;font-weight:700;color:#0f766e;\">$${todayCost.toFixed(4)}</span>\n                    </td>\n                    <td class=\"stat-cell\" style=\"width:50%;padding:0 0 0 8px;vertical-align:top;\">\n                      <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:500;color:#64748b;margin-bottom:4px;\">Total Spend</span>\n                      <span style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:22px;font-weight:700;color:#0f172a;\">$${totalCost.toFixed(4)}</span>\n                    </td>\n                  </tr>\n                </table>\n              </td>\n            </tr>\n          </table>\n          \n          <!-- Status Summary Strip -->\n          <table role=\"presentation\" class=\"status-strip\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:20px 24px 0;max-width:calc(100% - 48px);\">\n            <tr>\n              <td>\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <tr>\n                    <!-- Escalations Pill -->\n                    <td class=\"status-pill\" style=\"width:32%;padding:0 4px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"background-color:#ffffff;border:1px solid #e2e8f0;border-radius:8px;\">\n                        <tr><td style=\"padding:12px 8px;text-align:center;\">\n                          <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;\">Escalations</span>\n                          <span style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:20px;font-weight:700;color:#0f172a;\">${unansweredCount}</span>\n                        </td></tr>\n                      </table>\n                    </td>\n                    <!-- Errors Pill -->\n                    <td class=\"status-pill\" style=\"width:32%;padding:0 4px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"background-color:#ffffff;border:1px solid #e2e8f0;border-radius:8px;\">\n                        <tr><td style=\"padding:12px 8px;text-align:center;\">\n                          <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;\">AI Errors</span>\n                          <span style=\"font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:20px;font-weight:700;color:#0f172a;\">${errorCount}</span>\n                        </td></tr>\n                      </table>\n                    </td>\n                    <!-- Status Pill -->\n                    <td class=\"status-pill\" style=\"width:32%;padding:0 4px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"${unansweredCount === 0 && errorCount === 0 ? 'background-color:#ecfdf5;border:1px solid #a7f3d0;' : 'background-color:#fffbeb;border:1px solid #fcd34d;'}border-radius:8px;\">\n                        <tr><td style=\"padding:12px 8px;text-align:center;\">\n                          <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;\">Status</span>\n                          <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;${unansweredCount === 0 && errorCount === 0 ? 'color:#059669;' : 'color:#d97706;'}\">${unansweredCount === 0 && errorCount === 0 ? 'Optimal' : 'Attention'}</span>\n                        </td></tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n              </td>\n            </tr>\n          </table>\n`;\n\n// 4. Conditional Escalation Logic\nif (unansweredCount === 0 && errorCount === 0) {\n  htmlMessage += `\n          <!-- All Clear State -->\n          <table role=\"presentation\" class=\"all-clear\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:24px 24px 0;max-width:calc(100% - 48px);\">\n            <tr>\n              <td style=\"background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:32px 24px;text-align:center;\">\n                <!-- Check Icon -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"margin:0 auto;\">\n                  <tr>\n                    <td style=\"width:48px;height:48px;background-color:#d1fae5;border-radius:50%;text-align:center;vertical-align:middle;\">\n                      <span style=\"font-size:20px;color:#059669;line-height:48px;display:block;\">&#10003;</span>\n                    </td>\n                  </tr>\n                </table>\n                <p style=\"margin:16px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#065f46;line-height:1.3;\">System Optimal</p>\n                <p style=\"margin:8px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:400;color:#64748b;line-height:1.5;\">No unanswered customer queries or AI system errors logged today.</p>\n              </td>\n            </tr>\n          </table>`;\n} else {\n\n  if (medicalRisk.length > 0) {\n    htmlMessage += `\n          <!-- Medical Risk Escalations -->\n          <table role=\"presentation\" class=\"section medical-risk\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:24px 24px 0;max-width:calc(100% - 48px);\">\n            <tr>\n              <td style=\"background-color:#fff1f2;border:1px solid #fecdd3;border-radius:12px;overflow:hidden;\">\n                <!-- Section Header -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <tr>\n                    <td class=\"section-header\" style=\"background-color:#ffe4e6;border-bottom:1px solid #fecdd3;padding:14px 20px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                        <tr>\n                          <td style=\"vertical-align:middle;\">\n                            <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#9f1239;line-height:1.4;\">&#9888; Medical Risk Escalations</span>\n                          </td>\n                          <td style=\"text-align:right;vertical-align:middle;width:40px;\">\n                            <span style=\"display:inline-block;background-color:#e11d48;color:#ffffff;padding:4px 12px;border-radius:9999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:700;min-width:28px;text-align:center;\">${medicalRisk.length}</span>\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n                <!-- Content -->\n                <table role=\"presentation\" class=\"section-content\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"padding:16px 20px;\">\n                  <tr><td>\n                    <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">`;\n    for (let i = 0; i < medicalRisk.length; i++) {\n      const item = medicalRisk[i];\n      const isLast = i === medicalRisk.length - 1;\n      htmlMessage += `\n                        <tr>\n                          <td style=\"padding:14px 0;${isLast ? '' : 'border-bottom:1px solid #fecdd3;'}\">\n                            <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                              <tr>\n                                <td style=\"width:14px;vertical-align:top;padding-top:4px;\">\n                                  <span style=\"display:block;width:6px;height:6px;background-color:#e11d48;border-radius:50%;\">&nbsp;</span>\n                                </td>\n                                <td style=\"padding-left:8px;\">\n                         <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1e293b;line-height:1.5;\">&ldquo;${escapeHTML(item.json.question)}&rdquo;</span>\n<span style=\"display:block;font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4;\">Session ID: ${escapeHTML(item.json.session_id)}</span>\n\n                                </td>\n                              </tr>\n                            </table>\n                          </td>\n                        </tr>`;\n    }\n    htmlMessage += `\n                    </table>\n                  </td></tr>\n                </table>\n              </td>\n            </tr>\n          </table>`;\n  }\n\n  if (otherQuestions.length > 0) {\n    htmlMessage += `\n          <!-- Unanswered Inquiries -->\n          <table role=\"presentation\" class=\"section general-inquiries\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:24px 24px 0;max-width:calc(100% - 48px);\">\n            <tr>\n              <td style=\"background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;\">\n                <!-- Section Header -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <tr>\n                    <td class=\"section-header\" style=\"background-color:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:14px 20px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                        <tr>\n                          <td style=\"vertical-align:middle;\">\n                            <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#334155;line-height:1.4;\">Unanswered Inquiries</span>\n                          </td>\n                          <td style=\"text-align:right;vertical-align:middle;width:40px;\">\n                            <span style=\"display:inline-block;background-color:#334155;color:#ffffff;padding:4px 12px;border-radius:9999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:700;min-width:28px;text-align:center;\">${otherQuestions.length}</span>\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n                <!-- Content -->\n                <table role=\"presentation\" class=\"section-content\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"padding:16px 20px;\">\n                  <tr><td>\n                    <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">`;\n    const preview = otherQuestions.slice(0, 5);\n    for (let i = 0; i < preview.length; i++) {\n      const item = preview[i];\n      const isLast = i === preview.length - 1 && otherQuestions.length <= 5;\n      htmlMessage += `\n                        <tr>\n                          <td style=\"padding:14px 0;${isLast ? '' : 'border-bottom:1px solid #e2e8f0;'}\">\n     <span style=\"display:inline-block;background-color:#e2e8f0;color:#475569;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;margin-right:8px;vertical-align:middle;\">${escapeHTML(item.json.reason || 'General')}</span>\n     <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1e293b;line-height:1.5;vertical-align:middle;\">&ldquo;${escapeHTML(item.json.question)}&rdquo;</span>\n                     <span style=\"display:block;font-family:ui-monospace,'SF Mono','Cascadia Code',monospace;font-size:11px;color:#94a3b8;margin-top:6px;padding-left:0;line-height:1.4;\">Session ID: ${escapeHTML(item.json.session_id)}</span>\n                     \n                          </td>\n                        </tr>`;\n    }\n    if (otherQuestions.length > 5) {\n      htmlMessage += `\n                        <tr>\n                          <td style=\"padding:12px 0;text-align:center;background-color:#f8fafc;\">\n                            <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-style:italic;color:#64748b;line-height:1.4;\">+ ${otherQuestions.length - 5} more unanswered queries</span>\n                          </td>\n                        </tr>`;\n    }\n    htmlMessage += `\n                    </table>\n                  </td></tr>\n                </table>\n              </td>\n            </tr>\n          </table>`;\n  }\n\n  if (errorCount > 0) {\n    htmlMessage += `\n          <!-- AI Engine Errors -->\n          <table role=\"presentation\" class=\"section ai-errors\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin:24px 24px 0;max-width:calc(100% - 48px);\">\n            <tr>\n              <td style=\"background-color:#fffbeb;border:1px solid #fcd34d;border-radius:12px;overflow:hidden;\">\n                <!-- Section Header -->\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                  <tr>\n                    <td class=\"section-header\" style=\"background-color:#fef3c7;border-bottom:1px solid #fcd34d;padding:14px 20px;\">\n                      <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                        <tr>\n                          <td style=\"vertical-align:middle;\">\n                            <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#92400e;line-height:1.4;\">AI Engine Errors</span>\n                          </td>\n                          <td style=\"text-align:right;vertical-align:middle;width:40px;\">\n                            <span style=\"display:inline-block;background-color:#d97706;color:#ffffff;padding:4px 12px;border-radius:9999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:700;min-width:28px;text-align:center;\">${errorCount}</span>\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n                <!-- Content -->\n                <table role=\"presentation\" class=\"section-content\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"padding:16px 20px;\">\n                  <tr><td>\n                    <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">`;\n    const groupedErrors = {};\n    for (const item of ai_error) {\n      const error = item.json.error_message;\n      groupedErrors[error] = (groupedErrors[error] || 0) + 1;\n    }\n    const errorEntries = Object.entries(groupedErrors);\n    for (let i = 0; i < errorEntries.length; i++) {\n      const [error, count] = errorEntries[i];\n      const isLast = i === errorEntries.length - 1;\n      htmlMessage += `\n                        <tr>\n                          <td style=\"padding:14px 0;${isLast ? '' : 'border-bottom:1px solid #fcd34d;'}\">\n                            <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n                              <tr>\n                                <td style=\"width:14px;vertical-align:top;padding-top:5px;\">\n                                  <span style=\"display:block;width:6px;height:6px;background-color:#d97706;border-radius:50%;\">&nbsp;</span>\n                                </td>\n                                <td style=\"padding-left:8px;\">\n                          <span style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1e293b;line-height:1.5;\">${escapeHTML(error)}</span>\n                                  <span style=\"display:block;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.4;\">Triggered ${count} time(s) today</span>\n                                </td>\n                              </tr>\n                            </table>\n                          </td>\n                        </tr>`;\n    }\n    htmlMessage += `\n                    </table>\n                  </td></tr>\n                </table>\n              </td>\n            </tr>\n          </table>`;\n  }\n}\n\nhtmlMessage += `\n          \n          <!-- Footer Section -->\n          <table role=\"presentation\" class=\"email-footer\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\" style=\"margin-top:32px;\">\n            <tr>\n              <td style=\"background-color:#f8fafc;border-top:1px solid #e2e8f0;padding:24px;text-align:center;\">\n                <p style=\"margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:600;color:#475569;line-height:1.5;\">Daily Summary: ${unansweredCount} Escalations &bull; ${errorCount} Errors</p>\n                <p style=\"margin:8px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:400;color:#94a3b8;line-height:1.4;\">Hava Automated Internal Report &copy; ${today.getFullYear()}</p>\n                <p style=\"margin:4px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;line-height:1.4;\">HAVA</p>\n              </td>\n            </tr>\n          </table>\n          \n        </td>\n      </tr>\n    </table>\n    \n    <!-- Spacer below container for breathing room -->\n    <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" width=\"100%\">\n      <tr><td style=\"height:16px;font-size:0;line-height:0;\">&nbsp;</td></tr>\n    </table>\n    \n  </div>\n  \n  <!--[if mso]>\n  </td>\n  </tr>\n  </table>\n  <![endif]-->\n</body>\n</html>\n`;\n\n// 5. Smart Dynamic Subject Generator\nlet dynamicSubject = `Hava AI Digest: ${todayCost.toFixed(2)} spent today`;\n\nif (medicalRisk.length > 0) {\n  dynamicSubject = `[URGENT] Hava Digest: ${medicalRisk.length} Medical Escalation(s)`;\n} else if (unansweredCount > 0 || errorCount > 0) {\n  dynamicSubject = `Hava AI Digest: ${unansweredCount} Inquiries | ${errorCount} Errors`;\n}\n\nreturn [\n  {\n    json: {\n      subject: dynamicSubject,\n      message: htmlMessage\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -16
+      ],
+      "id": "87c2a5ec-34b9-4f52-9ddb-47666321acd9",
+      "name": "Generate HTML Dashboard",
+      "notesInFlow": true,
+      "notes": "Generates the branded Hava HTML/CSS executive dashboard."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Helper to prevent [object Object] from appearing in text messages\nfunction safeString(val) {\n  if (!val) return \"Unknown\";\n  if (typeof val === 'object') {\n    try { return JSON.stringify(val); } \n    catch (e) { return \"Complex Object\"; }\n  }\n  return String(val);\n}\n\n// 1. Safely fetch data (prevents crashes if a node returns 0 items)\nconst Unanswered = $('Unanswered').all().filter(item => item.json?.question);\nconst ai_error = $('ai_errors').all().filter(item => item.json?.error_message);\nconst tokenStats = $('AI Token Stats').first()?.json || {}; // Added optional chaining\n\n// 2. Parse stats safely\nconst usedToday = Number(tokenStats.today_tokens || 0);\nconst usedTotal = Number(tokenStats.total_tokens || 0);\nconst todayCost = Number(tokenStats.today_cost || 0);\nconst totalCost = Number(tokenStats.total_cost || 0);\n\nconst today = new Date();\nconst formatDate = today.toLocaleDateString('en-US', {\n  timeZone: 'Asia/Dubai',\n  month: 'long',\n  day: 'numeric',\n  year: 'numeric'\n});\n\nlet message = `Daily FAQ Bot Digest - ${formatDate}\\n\\n`;\n\nconst unansweredCount = Unanswered.length;\nconst errorCount = ai_error.length;\n\nconst medicalRisk = [];\nconst otherQuestions = [];\n\nfor (const item of Unanswered) {\n  if (item.json.reason?.toLowerCase() === \"medical_risk\") {\n    medicalRisk.push(item);\n  } else {\n    otherQuestions.push(item);\n  }\n}\n\n// 3. Build the plain text message\nif (unansweredCount === 0 && errorCount === 0) {\n  message += \"No unanswered questions or system errors in the last 24 hours.\";\n} else {\n\n  // ===== Unanswered Questions =====\n  if (medicalRisk.length > 0) {\n    message += `MEDICAL RISK ESCALATIONS: ${medicalRisk.length}\\n`;\n    for (const item of medicalRisk) {\n      message += `• \"${safeString(item.json.question)}\" (${safeString(item.json.session_id)})\\n`;\n    }\n    message += \"\\n\";\n  }\n\n  if (otherQuestions.length > 0) {\n    message += `Unanswered Questions: ${otherQuestions.length}\\n`;\n    const preview = otherQuestions.slice(0, 5);\n\n    for (const item of preview) {\n      message += `• ${safeString(item.json.reason)}: \"${safeString(item.json.question)}\" (${safeString(item.json.session_id)})\\n`;\n    }\n\n    if (otherQuestions.length > 5) {\n      message += `... and ${otherQuestions.length - 5} more unanswered questions.\\n`;\n    }\n    message += \"\\n\";\n  }\n\n  // ===== AI Errors =====\n  if (errorCount > 0) {\n    message += `AI System Errors: ${errorCount}\\n`;\n\n    // Count identical error messages safely\n    const groupedErrors = {};\n    for (const item of ai_error) {\n      const errorStr = safeString(item.json.error_message);\n      groupedErrors[errorStr] = (groupedErrors[errorStr] || 0) + 1;\n    }\n\n    for (const [error, count] of Object.entries(groupedErrors)) {\n      message += `• ${error} × ${count}\\n`;\n    }\n    message += \"\\n\";\n  }\n  \n  // ===== AI Token Usage =====\n  message += `AI Token Usage\\n`;\n  message += `• Used today: ${usedToday.toLocaleString()} tokens\\n`;\n  message += `• Used total: ${usedTotal.toLocaleString()} tokens\\n`;\n  message += `• Today's cost: $${todayCost.toFixed(4)}\\n`;\n  message += `• Total cost: $${totalCost.toFixed(4)}\\n\\n`;\n\n  message += `Total escalations: ${unansweredCount} | System errors: ${errorCount}`;\n}\n\nreturn [\n  {\n    json: {\n      message\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -256
+      ],
+      "id": "087fd33e-6fdb-4849-82e6-2495e70d46bd",
+      "name": "Format Slack Digest",
+      "notesInFlow": true,
+      "executeOnce": true,
+      "notes": "Structures the extracted metrics into a plain-text operational alert."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Unanswered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unanswered": {
+      "main": [
+        [
+          {
+            "node": "ai_errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ai_errors": {
+      "main": [
+        [
+          {
+            "node": "AI Token Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Token Stats": {
+      "main": [
+        [
+          {
+            "node": "Generate HTML Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate HTML Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Send Executive Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "xiZ7bpz0EnkEkmmG",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Dubai"
+  },
+  "versionId": "e938992c-2208-492c-a616-6a631ac83cbc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1a6a6d8b6d7820a0c8851748fe50daf3a11fadbbfbb8c5d9708a140ffa762e17"
+  },
+  "nodeGroups": [],
+  "id": "HvmewvVvuThF6ucw",
+  "tags": []
+}
